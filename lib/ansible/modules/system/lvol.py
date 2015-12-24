@@ -83,6 +83,9 @@ options:
     version_added: "2.2"
     description:
     - Comma separated list of physical volumes e.g. /dev/sda,/dev/sdb
+  thinpool:
+    description:
+    - The thin pool volume name. When you want to create thinprovisioning volume, specify thin pool volume name.
     required: false
   shrink:
     version_added: "2.2"
@@ -199,6 +202,12 @@ EXAMPLES = '''
     lv: test
     size: 512g
     active: false
+
+# Create a thin pool of 512g.
+- lvol: vg=firefly thinpool=testpool size=512g
+
+# Create a thin volume of 128g.
+- lvol: vg=firefly lv=test thinpool=testpool size=128g
 '''
 
 import re
@@ -247,7 +256,7 @@ def main():
     module = AnsibleModule(
         argument_spec=dict(
             vg=dict(required=True),
-            lv=dict(required=True),
+            lv=dict(type='str'),
             size=dict(type='str'),
             opts=dict(type='str'),
             state=dict(choices=["absent", "present"], default='present'),
@@ -256,6 +265,7 @@ def main():
             active=dict(type='bool', default='yes'),
             snapshot=dict(type='str', default=None),
             pvs=dict(type='str')
+            thinpool=dict(type='str'),
         ),
         supports_check_mode=True,
     )
@@ -278,6 +288,7 @@ def main():
     force = module.boolean(module.params['force'])
     shrink = module.boolean(module.params['shrink'])
     active = module.boolean(module.params['active'])
+    thinpool = module.params['thinpool']
     size_opt = 'L'
     size_unit = 'm'
     snapshot = module.params['snapshot']
@@ -365,6 +376,23 @@ def main():
         check_lv = snapshot
     for test_lv in lvs:
         if test_lv['name'] == check_lv:
+
+    if thinpool and lv:
+        for test_lv in lvs:
+            if test_lv['name'] == thinpool:
+                break
+        else:
+            module.fail_json(msg="Thin poll %s does not exist." % thinpool)
+
+    if thinpool and not lv:
+        target = thinpool
+    elif lv:
+        target = lv
+    else:
+        module.fail_json(msg="lv param is required unless thinpool param is specified.")
+
+    for test_lv in lvs:
+        if test_lv['name'] == target:
             this_lv = test_lv
             break
     else:
@@ -387,7 +415,26 @@ def main():
             if rc == 0:
                 changed = True
             else:
-                module.fail_json(msg="Creating logical volume '%s' failed" % lv, rc=rc, err=err)
+                lvcreate_cmd = module.get_bin_path("lvcreate", required=True)
+                if snapshot is not None:
+                    cmd = "%s %s -%s %s%s -s -n %s %s %s/%s" % (lvcreate_cmd, yesopt, size_opt, size, size_unit, snapshot, opts, vg, lv)
+                else:
+                    cmd = "%s %s -n %s -%s %s%s %s %s %s" % (lvcreate_cmd, yesopt, lv, size_opt, size, size_unit, opts, vg, pvs)
+                if thinpool and lv:
+                    if size_opt == 'l':
+                       module.fail_json(changed=False, msg="Thin volume sizing with percentage not supported.")
+                    size_opt = 'V'
+
+                    cmd = "%s %s -n %s -%s %s%s %s -T %s/%s" % (lvcreate_cmd, yesopt, lv, size_opt, size, size_unit, opts, vg, thinpool)
+                elif thinpool and not lv:
+                    cmd = "%s %s -%s %s%s %s -T %s/%s" % (lvcreate_cmd, yesopt, size_opt, size, size_unit, opts, vg, thinpool)
+                else:
+                    cmd = "%s %s -n %s -%s %s%s %s %s" % (lvcreate_cmd, yesopt, lv, size_opt, size, size_unit, opts, vg)
+                rc, _, err = module.run_command(cmd)
+                if rc == 0:
+                    changed = True
+                else:
+                    module.fail_json(msg="Creating logical volume '%s' failed" % lv, rc=rc, err=err)
     else:
         if state == 'absent':
             ### remove LV
