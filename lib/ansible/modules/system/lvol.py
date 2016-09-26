@@ -96,7 +96,7 @@ options:
     default: yes
 notes:
   - Filesystems on top of the volume are not resized.
-  - You must specify lv (when managing the state of logical volumes) or thinpool (when managing a thin provisisoned volume).
+  - You must specify lv (when managing the state of logical volumes) or thinpool (when managing a thin provisioned volume).
 '''
 
 EXAMPLES = '''
