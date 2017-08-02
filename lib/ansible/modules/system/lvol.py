@@ -84,7 +84,7 @@ options:
     description:
     - Comma separated list of physical volumes e.g. /dev/sda,/dev/sdb
   thinpool:
-    version_added: "2.3"
+    version_added: "2.4"
     description:
     - The thin pool volume name. When you want to create a thin provisioned volume, specify a thin pool volume name.
     required: false
